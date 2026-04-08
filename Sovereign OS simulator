@@ -1,0 +1,504 @@
+import { useState, useEffect, useRef } from "react";
+import { Shield, FileText, TrendingUp, Calendar, AlertTriangle, Send, ChevronRight, Zap } from "lucide-react";
+
+// ── PARSER ────────────────────────────────────────────────────────────────────
+function parseMessage(msg) {
+  const m = msg.toLowerCase();
+  let sender = "Unknown Sender", context = "Business Contact", docType = "Document";
+  let filename = "document.pdf";
+  const year = new Date().getFullYear();
+  const month = new Date().toLocaleString("default", { month: "long" });
+
+  const fromMatch = msg.match(/from ([A-Za-z\s]+?)(?:[,.\-]|sent by|$)/i);
+  const sentByMatch = msg.match(/sent by ([A-Za-z\s]+?)(?:[,.\-]|$)/i);
+  if (fromMatch) sender = fromMatch[1].trim();
+  else if (sentByMatch) sender = sentByMatch[1].trim();
+
+  if (m.includes("maersk") || m.includes("logistics") || m.includes("shipping")) context = "Logistics";
+  else if (m.includes("creative") || m.includes("director") || m.includes("production") || m.includes("bhavya")) context = "Creative Production";
+  else if (m.includes("legal") || m.includes("nda") || m.includes("counsel") || m.includes("contract")) context = "Legal";
+  else if (m.includes("bank") || m.includes("audit") || m.includes("finance") || m.includes("statement")) context = "Finance";
+  else if (m.includes("vendor") || m.includes("invoice") || m.includes("bill")) context = "Finance";
+
+  if (m.includes("invoice") || m.includes("bill")) {
+    docType = "Invoice"; filename = `Invoice_${month}_${year}.pdf`;
+  } else if (m.includes("proposal") || m.includes("funding") || m.includes("pitch")) {
+    docType = "Funding Proposal"; filename = `FundingProposal_${sender.replace(/ /g, "")}.pdf`;
+  } else if (m.includes("nda") || m.includes("agreement")) {
+    docType = "Legal NDA"; filename = `NDA_${sender.replace(/ /g, "")}_${year}.pdf`;
+  } else if (m.includes("bank statement") || m.includes("statement")) {
+    docType = "Bank Statement"; filename = `BankStatement_Q4_${year}.pdf`;
+  } else if (m.includes("contract")) {
+    docType = "Contract"; filename = `Contract_${sender.replace(/ /g, "")}.pdf`;
+  } else if (m.includes("report")) {
+    docType = "Report"; filename = `Report_${month}_${year}.pdf`;
+  }
+
+  const folderPath = `SovereignOS / ${sender} / ${docType} / ${year}`;
+  const confidence = (0.88 + Math.random() * 0.1).toFixed(2);
+  return { sender, context, docType, filename, folderPath, confidence };
+}
+
+// ── SENTINEL EVENTS ───────────────────────────────────────────────────────────
+const SENTINEL_EVENTS = [
+  {
+    id: "gold",
+    label: "Gold $2,500",
+    sublabel: "COMMODITY",
+    icon: "🥇",
+    color: "#C9A84C",
+    alert: "THRESHOLD BREACH",
+    msg: "XAU/USD crossed configured alert at $2,500. Current: $2,503.40 (+1.2%). 30-day high reached. Review exposure.",
+  },
+  {
+    id: "btc",
+    label: "BTC −8% Drop",
+    sublabel: "CRYPTO",
+    icon: "₿",
+    color: "#FF6B35",
+    alert: "VOLATILITY ALERT",
+    msg: "BTC/USD dropped 8.2% in 4h window. Below floor of $58,000. Current: $54,840. Liquidation risk elevated.",
+  },
+  {
+    id: "port",
+    label: "Port Delay 72h",
+    sublabel: "LOGISTICS",
+    icon: "🚢",
+    color: "#4D9FFF",
+    alert: "LOGISTICS ALERT",
+    msg: "Maersk reports 72h delay at JNPT Mumbai. 3 tracked shipments affected. ETA updated. Customs clearance pending.",
+  },
+  {
+    id: "nda",
+    label: "NDA Expiry 48h",
+    sublabel: "LEGAL",
+    icon: "⚖️",
+    color: "#A78BFA",
+    alert: "DEADLINE ALERT",
+    msg: "NDA with TechVentures Ltd expires in 48h. Filed at SovereignOS/Legal/NDA. Renewal required. Action needed.",
+  },
+];
+
+// ── QUICK FILLS ───────────────────────────────────────────────────────────────
+const QUICK_FILLS = [
+  { label: "📄 Shipping Invoice", text: "Invoice from Maersk for March shipping. Forwarded by logistics team." },
+  { label: "📑 Funding Proposal", text: "Funding proposal from White Tiger Productions — sent by Bhavya, creative director." },
+  { label: "⚖️ Legal NDA", text: "NDA from TechVentures Ltd. Needs signature. Sent by Arjun, legal counsel." },
+  { label: "📊 Bank Statement", text: "Q4 bank statement from HDFC for annual audit. Account ending 4821." },
+];
+
+// ── MAIN COMPONENT ────────────────────────────────────────────────────────────
+export default function SovereignSimulator() {
+  const [activeTab, setActiveTab] = useState("vault");
+  const [logs, setLogs] = useState([]);
+  const [status, setStatus] = useState("IDLE");
+  const [msgInput, setMsgInput] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [sentinelAlert, setSentinelAlert] = useState(null);
+  const [scanWidth, setScanWidth] = useState(0);
+  const [unread, setUnread] = useState(1);
+  const [bootLines, setBootLines] = useState([]);
+  const logRef = useRef(null);
+
+  // Boot sequence
+  useEffect(() => {
+    const lines = [
+      { t: 200, msg: "SOVEREIGN_OS v1.0 — INITIALIZING...", type: "system" },
+      { t: 600, msg: "Loading Vision-Vault module...", type: "system" },
+      { t: 1000, msg: "Sentinel armed. Monitors: 5 active.", type: "success" },
+      { t: 1400, msg: "Drive API: Connected.", type: "success" },
+      { t: 1800, msg: "WhatsApp bridge: ONLINE.", type: "success" },
+      { t: 2200, msg: "System ready. Awaiting operator input.", type: "gold" },
+    ];
+    lines.forEach(({ t, msg, type }) => {
+      setTimeout(() => {
+        setBootLines((prev) => [...prev, { msg, type }]);
+      }, t);
+    });
+  }, []);
+
+  const addLog = (msg, type = "info", delay = 0) => {
+    setTimeout(() => {
+      const time = new Date().toLocaleTimeString("en-IN", { hour12: false });
+      setLogs((prev) => [{ time, msg, type, id: Date.now() + Math.random() }, ...prev].slice(0, 12));
+    }, delay);
+  };
+
+  const logColor = (type) => {
+    if (type === "warning") return "#FBBF24";
+    if (type === "success") return "#34D399";
+    if (type === "gold") return "#C9A84C";
+    if (type === "input") return "#F1F5F9";
+    if (type === "system") return "#60A5FA";
+    if (type === "dim") return "#475569";
+    return "#60A5FA";
+  };
+
+  // ── VAULT SIMULATION ───────────────────────────────────────────────────────
+  const simulateVault = (customMsg = "") => {
+    const msg = customMsg || msgInput.trim();
+    if (!msg || isProcessing) return;
+    setIsProcessing(true);
+    setStatus("PROCESSING");
+    setScanWidth(0);
+    setLogs([]);
+
+    const parsed = parseMessage(msg);
+
+    addLog(`WhatsApp Input: "${msg.slice(0, 55)}${msg.length > 55 ? "..." : ""}"`, "input", 0);
+    addLog("Routing to Vision-Vault module...", "system", 400);
+    addLog("Gemini 1.5 Flash: Analyzing content...", "system", 900);
+
+    setTimeout(() => setScanWidth(100), 1000);
+
+    addLog(`Entity extracted → SENDER: ${parsed.sender}`, "success", 1600);
+    addLog(`Entity extracted → CONTEXT: ${parsed.context}`, "success", 2000);
+    addLog(`Entity extracted → DOC_TYPE: ${parsed.docType}`, "success", 2400);
+    addLog(`Confidence score: ${parsed.confidence}`, "gold", 2800);
+    addLog(`Building folder path: ${parsed.folderPath}`, "system", 3200);
+    addLog(`Google Drive: Creating directory structure...`, "system", 3700);
+    addLog(`Uploading: ${parsed.filename}`, "system", 4100);
+    addLog(`✓ FILED → ${parsed.folderPath}/${parsed.filename}`, "success", 4600);
+    addLog(`WhatsApp confirmation sent to operator.`, "success", 5000);
+
+    setTimeout(() => {
+      setStatus("READY");
+      setIsProcessing(false);
+      setMsgInput("");
+    }, 5200);
+  };
+
+  // ── SENTINEL SIMULATION ────────────────────────────────────────────────────
+  const simulateSentinel = (event) => {
+    if (isProcessing) return;
+    setIsProcessing(true);
+    setStatus("MONITORING");
+    setSentinelAlert(null);
+    setLogs([]);
+
+    addLog(`Sentinel: Scanning ${event.sublabel} monitor...`, "system", 0);
+    addLog(`Threshold check: ${event.label}`, "system", 500);
+    addLog(`⚠ ${event.alert}: ${event.msg.slice(0, 60)}...`, "warning", 1200);
+    addLog("Composing WhatsApp notification...", "system", 1600);
+    addLog("Alert dispatched to operator.", "success", 2000);
+
+    setTimeout(() => {
+      setSentinelAlert(event);
+      setStatus("READY");
+      setIsProcessing(false);
+    }, 2200);
+  };
+
+  // ── UPDATE SIMULATION ──────────────────────────────────────────────────────
+  const simulateUpdate = () => {
+    if (isProcessing) return;
+    setIsProcessing(true);
+    setStatus("SYNCING");
+    setLogs([]);
+
+    addLog('Query: "Update"', "input", 0);
+    addLog("Scanning Gmail API...", "system", 400);
+    addLog("Scanning Google Calendar API...", "system", 700);
+    addLog("Parsing 3 unread threads...", "system", 1100);
+    addLog("1 Priority Email: Customs Agent — JNPT clearance docs needed.", "warning", 1600);
+    addLog("Next meeting: 4:00 PM IST — Investor call (Google Meet).", "success", 2000);
+    addLog("Daily brief compiled. Sending to WhatsApp...", "system", 2400);
+    addLog("✓ Brief delivered to operator.", "success", 2800);
+
+    setTimeout(() => {
+      setUnread(0);
+      setStatus("READY");
+      setIsProcessing(false);
+    }, 3000);
+  };
+
+  const handleKey = (e) => {
+    if (e.key === "Enter" && !isProcessing) simulateVault();
+  };
+
+  // ── RENDER ─────────────────────────────────────────────────────────────────
+  return (
+    <div style={{
+      display: "flex", flexDirection: "column", height: "100vh",
+      background: "#080A0C", color: "#A8B8C8",
+      fontFamily: "'Share Tech Mono', monospace",
+      maxWidth: "720px", margin: "0 auto",
+      borderLeft: "1px solid #1E2D3D", borderRight: "1px solid #1E2D3D",
+      position: "relative", overflow: "hidden"
+    }}>
+
+      {/* Scanlines */}
+      <div style={{
+        position: "fixed", inset: 0, pointerEvents: "none", zIndex: 50,
+        background: "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.04) 2px, rgba(0,0,0,0.04) 4px)"
+      }} />
+
+      {/* HEADER */}
+      <div style={{
+        padding: "14px 20px", borderBottom: "1px solid #1E2D3D",
+        background: "#0D1117", display: "flex", alignItems: "center",
+        justifyContent: "space-between", flexShrink: 0
+      }}>
+        <div>
+          <div style={{ fontSize: "18px", letterSpacing: "4px", color: "#E8EFF7", fontFamily: "'Bebas Neue', sans-serif" }}>
+            SOVEREIGN <span style={{ color: "#C9A84C" }}>OS</span>
+            <span style={{ fontSize: "10px", color: "#4A5568", marginLeft: "10px", fontFamily: "monospace" }}>v1.0</span>
+          </div>
+          <div style={{ fontSize: "10px", color: "#4A5568", letterSpacing: "2px", marginTop: "2px" }}>
+            INFRASTRUCTURE STATUS:{" "}
+            <span style={{ color: "#34D399" }}>ONLINE</span>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <div style={{
+            fontSize: "10px", padding: "4px 10px", border: "1px solid #1E2D3D",
+            background: "#111820", color: status === "IDLE" ? "#4A5568" : status === "READY" ? "#34D399" : "#C9A84C",
+            letterSpacing: "1px"
+          }}>
+            {status}
+          </div>
+          <Shield size={24} style={{ color: "#C9A84C", filter: "drop-shadow(0 0 6px #C9A84C44)" }} />
+        </div>
+      </div>
+
+      {/* TABS */}
+      <div style={{ display: "flex", background: "#0D1117", borderBottom: "1px solid #1E2D3D", flexShrink: 0 }}>
+        {["vault", "sentinel"].map((tab) => (
+          <button key={tab} onClick={() => setActiveTab(tab)} style={{
+            padding: "10px 20px", background: "transparent", border: "none",
+            borderBottom: activeTab === tab ? "2px solid #C9A84C" : "2px solid transparent",
+            color: activeTab === tab ? "#C9A84C" : "#4A5568",
+            fontFamily: "'Share Tech Mono', monospace", fontSize: "10px",
+            letterSpacing: "2px", cursor: "pointer", transition: "all 0.2s",
+            textTransform: "uppercase"
+          }}>
+            {tab === "vault" ? "VISION-VAULT" : "SENTINEL"}
+          </button>
+        ))}
+      </div>
+
+      {/* MAIN CONTENT AREA */}
+      <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+
+        {/* LOG TERMINAL */}
+        <div ref={logRef} style={{
+          flex: 1, padding: "16px 20px", overflowY: "auto",
+          background: "#0A0C0F", display: "flex", flexDirection: "column", gap: "6px"
+        }}>
+          {logs.length === 0 && (
+            <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: "4px", justifyContent: "flex-end" }}>
+              {bootLines.map((line, i) => (
+                <div key={i} style={{ fontSize: "11px", color: logColor(line.type), lineHeight: "1.8" }}>
+                  <span style={{ color: "#2D3748", marginRight: "10px", fontSize: "10px" }}>
+                    {new Date().toLocaleTimeString("en-IN", { hour12: false })}
+                  </span>
+                  {line.msg}
+                </div>
+              ))}
+            </div>
+          )}
+          {logs.map((log) => (
+            <div key={log.id} style={{ fontSize: "11px", color: logColor(log.type), lineHeight: "1.8", animation: "fadeIn 0.3s ease" }}>
+              <span style={{ color: "#2D3748", marginRight: "10px", fontSize: "10px" }}>{log.time}</span>
+              {log.type === "warning" && <AlertTriangle size={10} style={{ display: "inline", marginRight: "4px", verticalAlign: "middle" }} />}
+              {log.msg}
+            </div>
+          ))}
+
+          {/* Scan progress bar */}
+          {isProcessing && activeTab === "vault" && (
+            <div style={{ marginTop: "8px", height: "2px", background: "#1E2D3D", overflow: "hidden" }}>
+              <div style={{
+                height: "100%", width: `${scanWidth}%`,
+                background: "linear-gradient(90deg, #C9A84C, #34D399)",
+                transition: "width 1.5s ease"
+              }} />
+            </div>
+          )}
+
+          {/* Sentinel Alert Card */}
+          {activeTab === "sentinel" && sentinelAlert && (
+            <div style={{
+              marginTop: "12px", border: `1px solid ${sentinelAlert.color}44`,
+              background: `linear-gradient(135deg, ${sentinelAlert.color}0D, transparent)`,
+              animation: "fadeIn 0.5s ease"
+            }}>
+              <div style={{
+                padding: "10px 14px", borderBottom: `1px solid ${sentinelAlert.color}33`,
+                display: "flex", alignItems: "center", gap: "10px",
+                fontSize: "10px", color: sentinelAlert.color, letterSpacing: "2px"
+              }}>
+                <span style={{ fontSize: "16px" }}>{sentinelAlert.icon}</span>
+                {sentinelAlert.alert}
+                <span style={{ marginLeft: "auto", color: "#4A5568" }}>{new Date().toLocaleTimeString()}</span>
+              </div>
+              <div style={{ padding: "14px" }}>
+                <div style={{ fontSize: "13px", color: "#E8EFF7", marginBottom: "10px", lineHeight: "1.5" }}>
+                  {sentinelAlert.msg}
+                </div>
+                <div style={{ display: "flex", gap: "16px", fontSize: "10px", color: "#4A5568" }}>
+                  <span>📱 WhatsApp notification sent</span>
+                  <span>SOURCE: {sentinelAlert.sublabel}_MONITOR</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* VAULT: Input + Quick fills */}
+        {activeTab === "vault" && (
+          <div style={{ padding: "14px 20px", background: "#0D1117", borderTop: "1px solid #1E2D3D", flexShrink: 0 }}>
+            <div style={{ fontSize: "10px", color: "#4A5568", letterSpacing: "2px", marginBottom: "10px" }}>
+              // QUICK SCENARIOS
+            </div>
+            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "12px" }}>
+              {QUICK_FILLS.map((q) => (
+                <button key={q.label} onClick={() => { setMsgInput(q.text); simulateVault(q.text); }}
+                  disabled={isProcessing}
+                  style={{
+                    padding: "5px 10px", border: "1px solid #1E2D3D", background: "transparent",
+                    color: isProcessing ? "#2D3748" : "#4A5568", fontFamily: "monospace",
+                    fontSize: "10px", cursor: isProcessing ? "not-allowed" : "pointer",
+                    transition: "all 0.15s"
+                  }}
+                  onMouseEnter={e => { if (!isProcessing) { e.target.style.borderColor = "#C9A84C"; e.target.style.color = "#C9A84C"; }}}
+                  onMouseLeave={e => { e.target.style.borderColor = "#1E2D3D"; e.target.style.color = "#4A5568"; }}
+                >
+                  {q.label}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <input
+                value={msgInput}
+                onChange={(e) => setMsgInput(e.target.value)}
+                onKeyDown={handleKey}
+                disabled={isProcessing}
+                placeholder="Describe your WhatsApp message..."
+                style={{
+                  flex: 1, background: "#080A0C", border: "1px solid #1E2D3D",
+                  padding: "10px 14px", color: "#E8EFF7", fontFamily: "monospace",
+                  fontSize: "12px", outline: "none",
+                  borderColor: msgInput ? "#C9A84C44" : "#1E2D3D"
+                }}
+              />
+              <button onClick={() => simulateVault()} disabled={isProcessing || !msgInput.trim()}
+                style={{
+                  padding: "10px 16px", background: msgInput && !isProcessing ? "#C9A84C" : "#1E2D3D",
+                  border: "none", cursor: msgInput && !isProcessing ? "pointer" : "not-allowed",
+                  color: msgInput && !isProcessing ? "#080A0C" : "#4A5568", transition: "all 0.2s"
+                }}>
+                <Send size={14} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* SENTINEL: Trigger buttons */}
+        {activeTab === "sentinel" && (
+          <div style={{ padding: "14px 20px", background: "#0D1117", borderTop: "1px solid #1E2D3D", flexShrink: 0 }}>
+            <div style={{ fontSize: "10px", color: "#4A5568", letterSpacing: "2px", marginBottom: "10px" }}>
+              // TRIGGER A MARKET EVENT
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              {SENTINEL_EVENTS.map((ev) => (
+                <button key={ev.id} onClick={() => simulateSentinel(ev)} disabled={isProcessing}
+                  style={{
+                    padding: "12px", background: "#111820", border: "1px solid #1E2D3D",
+                    textAlign: "left", cursor: isProcessing ? "not-allowed" : "pointer",
+                    transition: "all 0.2s", fontFamily: "monospace"
+                  }}
+                  onMouseEnter={e => { if (!isProcessing) e.currentTarget.style.borderColor = ev.color; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = "#1E2D3D"; }}
+                >
+                  <div style={{ fontSize: "13px", color: "#E8EFF7", marginBottom: "4px" }}>
+                    {ev.icon} {ev.label}
+                  </div>
+                  <div style={{ fontSize: "9px", color: "#4A5568", letterSpacing: "2px" }}>{ev.sublabel}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ACTION BAR */}
+      <div style={{
+        padding: "12px 20px", background: "#0D1117", borderTop: "1px solid #1E2D3D",
+        display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px", flexShrink: 0
+      }}>
+        {[
+          { icon: <FileText size={16} />, label: "VAULT FILE", action: () => { setActiveTab("vault"); simulateVault(QUICK_FILLS[0].text); } },
+          { icon: <TrendingUp size={16} />, label: "SENTINEL", action: () => { setActiveTab("sentinel"); simulateSentinel(SENTINEL_EVENTS[0]); } },
+          { icon: <Calendar size={16} />, label: "GET UPDATE", action: simulateUpdate, badge: unread },
+        ].map((btn) => (
+          <button key={btn.label} onClick={btn.action} disabled={isProcessing}
+            style={{
+              display: "flex", flexDirection: "column", alignItems: "center",
+              justifyContent: "center", padding: "10px", background: "#111820",
+              border: "1px solid #1E2D3D", cursor: isProcessing ? "not-allowed" : "pointer",
+              color: isProcessing ? "#2D3748" : "#A8B8C8", fontFamily: "monospace",
+              fontSize: "10px", gap: "4px", position: "relative", transition: "all 0.2s"
+            }}
+            onMouseEnter={e => { if (!isProcessing) { e.currentTarget.style.borderColor = "#C9A84C"; e.currentTarget.style.color = "#C9A84C"; }}}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = "#1E2D3D"; e.currentTarget.style.color = "#A8B8C8"; }}
+          >
+            {btn.badge > 0 && (
+              <span style={{
+                position: "absolute", top: "6px", right: "6px",
+                width: "8px", height: "8px", background: "#EF4444",
+                borderRadius: "50%"
+              }} />
+            )}
+            {btn.icon}
+            <span style={{ letterSpacing: "1px" }}>{btn.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* CTA BAR */}
+      <div style={{ padding: "14px 20px", background: "#0D1117", borderTop: "1px solid #C9A84C33", flexShrink: 0 }}>
+        <div style={{
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          marginBottom: "12px", fontSize: "10px"
+        }}>
+          <span style={{ color: "#4A5568", letterSpacing: "1px" }}>DEPLOYMENT WINDOW: APRIL 10</span>
+          <span style={{ color: "#C9A84C", fontWeight: "bold", letterSpacing: "1px" }}>
+            <Zap size={10} style={{ display: "inline", marginRight: "4px" }} />
+            6 SLOTS REMAINING
+          </span>
+        </div>
+        <div style={{ display: "flex", gap: "8px" }}>
+          <a href="https://dhurandhart.gumroad.com/l/start_here" target="_blank" rel="noreferrer"
+            style={{
+              flex: 1, padding: "10px", border: "1px solid #1E2D3D", background: "transparent",
+              color: "#A8B8C8", fontFamily: "monospace", fontSize: "10px", textAlign: "center",
+              textDecoration: "none", letterSpacing: "1px", transition: "all 0.2s", display: "flex",
+              alignItems: "center", justifyContent: "center", gap: "6px"
+            }}>
+            FREE SPEC <ChevronRight size={10} />
+          </a>
+          <a href="https://dhurandhart.gumroad.com/l/Sovereign_OS_Assistant" target="_blank" rel="noreferrer"
+            style={{
+              flex: 2, padding: "10px", background: "#C9A84C", border: "none",
+              color: "#080A0C", fontFamily: "'Bebas Neue', sans-serif", fontSize: "15px",
+              textAlign: "center", textDecoration: "none", letterSpacing: "3px",
+              transition: "all 0.2s", display: "flex", alignItems: "center",
+              justifyContent: "center", gap: "8px"
+            }}>
+            DEPLOY FULL INFRASTRUCTURE
+          </a>
+        </div>
+      </div>
+
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Bebas+Neue&display=swap');
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #080A0C; }
+        ::-webkit-scrollbar-thumb { background: #1E2D3D; }
+      `}</style>
+    </div>
+  );
+}
